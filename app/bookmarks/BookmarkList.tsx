@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import DeleteConfirmModal from "./DeleteConfirmModal";
 
@@ -14,21 +14,21 @@ type Bookmark = {
 };
 
 const TAG_COLORS: Record<string, { bg: string; text: string }> = {
-  design:           { bg: "#fce7f3", text: "#9d174d" },
-  development:      { bg: "#dbeafe", text: "#1e40af" },
-  productivity:     { bg: "#fef9c3", text: "#854d0e" },
-  ai:               { bg: "#ede9fe", text: "#6d28d9" },
-  research:         { bg: "#cffafe", text: "#155e75" },
-  news:             { bg: "#ffedd5", text: "#9a3412" },
-  finance:          { bg: "#dcfce7", text: "#166534" },
-  health:           { bg: "#d1fae5", text: "#065f46" },
-  education:        { bg: "#e0e7ff", text: "#3730a3" },
-  tools:            { bg: "#f1f5f9", text: "#475569" },
-  entertainment:    { bg: "#fee2e2", text: "#991b1b" },
-  science:          { bg: "#ccfbf1", text: "#134e4a" },
-  marketing:        { bg: "#ffe4e6", text: "#9f1239" },
-  devops:           { bg: "#f1f5f9", text: "#334155" },
-  "open-source":    { bg: "#ecfccb", text: "#3f6212" },
+  design:             { bg: "#fce7f3", text: "#9d174d" },
+  development:        { bg: "#dbeafe", text: "#1e40af" },
+  productivity:       { bg: "#fef9c3", text: "#854d0e" },
+  ai:                 { bg: "#ede9fe", text: "#6d28d9" },
+  research:           { bg: "#cffafe", text: "#155e75" },
+  news:               { bg: "#ffedd5", text: "#9a3412" },
+  finance:            { bg: "#dcfce7", text: "#166534" },
+  health:             { bg: "#d1fae5", text: "#065f46" },
+  education:          { bg: "#e0e7ff", text: "#3730a3" },
+  tools:              { bg: "#f1f5f9", text: "#475569" },
+  entertainment:      { bg: "#fee2e2", text: "#991b1b" },
+  science:            { bg: "#ccfbf1", text: "#134e4a" },
+  marketing:          { bg: "#ffe4e6", text: "#9f1239" },
+  devops:             { bg: "#f1f5f9", text: "#334155" },
+  "open-source":      { bg: "#ecfccb", text: "#3f6212" },
   "machine-learning": { bg: "#f5f3ff", text: "#5b21b6" },
 };
 
@@ -52,6 +52,7 @@ export default function BookmarkList() {
   const [activeTag, setActiveTag] = useState<string | null>(null);
 
   const supabase = createClient();
+  const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
   const fetchBookmarks = useCallback(async () => {
     const { data, error } = await supabase
@@ -63,19 +64,50 @@ export default function BookmarkList() {
   }, []);
 
   useEffect(() => {
+    // 1. Initial fetch
     fetchBookmarks();
+
+    // 2. Same-tab event listener
     window.addEventListener("bookmark-added", fetchBookmarks);
 
-    const channel = supabase
-      .channel("bookmarks-realtime")
-      .on("postgres_changes", { event: "*", schema: "public", table: "bookmarks" }, () => {
-        fetchBookmarks();
-      })
-      .subscribe();
+    // 3. Setup realtime with user filter
+    async function setupRealtime() {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      // Remove existing channel if any
+      if (channelRef.current) {
+        supabase.removeChannel(channelRef.current);
+      }
+
+      const channel = supabase
+        .channel(`bookmarks-${user.id}`)
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
+            table: "bookmarks",
+            filter: `user_id=eq.${user.id}`,
+          },
+          () => {
+            fetchBookmarks();
+          }
+        )
+        .subscribe((status) => {
+          console.log("[realtime] status:", status);
+        });
+
+      channelRef.current = channel;
+    }
+
+    setupRealtime();
 
     return () => {
       window.removeEventListener("bookmark-added", fetchBookmarks);
-      supabase.removeChannel(channel);
+      if (channelRef.current) {
+        supabase.removeChannel(channelRef.current);
+      }
     };
   }, [fetchBookmarks]);
 
@@ -172,7 +204,7 @@ export default function BookmarkList() {
                 border: "1px solid var(--border)",
               }}
               onMouseEnter={(e) =>
-                ((e.currentTarget as HTMLDivElement).style.borderColor = "#d4cfc9")
+                ((e.currentTarget as HTMLDivElement).style.borderColor = "#c4b5fd")
               }
               onMouseLeave={(e) =>
                 ((e.currentTarget as HTMLDivElement).style.borderColor = "var(--border)")
@@ -237,10 +269,7 @@ export default function BookmarkList() {
 
               {/* Right side */}
               <div className="flex-shrink-0 flex items-center gap-2 mt-0.5">
-                <span
-                  className="text-xs hidden sm:block"
-                  style={{ color: "var(--text-muted)" }}
-                >
+                <span className="text-xs hidden sm:block" style={{ color: "var(--text-muted)" }}>
                   {formatDate(bookmark.created_at)}
                 </span>
                 <button
