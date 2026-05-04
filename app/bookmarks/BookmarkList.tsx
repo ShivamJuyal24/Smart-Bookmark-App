@@ -112,13 +112,22 @@ export default function BookmarkList() {
   }, [fetchBookmarks]);
 
   async function handleDelete() {
-    if (!deleteTarget) return;
-    setDeleting(true);
-    await supabase.from("bookmarks").delete().eq("id", deleteTarget.id);
-    setDeleting(false);
-    setDeleteTarget(null);
-  }
+  if (!deleteTarget) return;
+  setDeleting(true);
 
+  const { error } = await supabase
+    .from("bookmarks")
+    .delete()
+    .eq("id", deleteTarget.id);
+
+  setDeleting(false);
+  setDeleteTarget(null);
+
+  // Optimistically remove from state immediately — don't wait for Realtime
+  if (!error) {
+    setBookmarks((prev) => prev.filter((b) => b.id !== deleteTarget.id));
+  }
+}
   const allTags = Array.from(new Set(bookmarks.flatMap((b) => b.tags ?? []))).sort();
   const filtered = activeTag ? bookmarks.filter((b) => b.tags?.includes(activeTag)) : bookmarks;
 
